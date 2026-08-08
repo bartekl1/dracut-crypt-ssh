@@ -1,0 +1,14 @@
+Source: dracut-crypt-ssh
+Section: admin
+Priority: optional
+Maintainer: bartekl1
+Rules-Requires-Root: no
+Build-Depends: debhelper-compat (= 13), libblkid-dev
+Standards-Version: 4.7.2
+Homepage: https://github.com/bartekl1/dracut-crypt-ssh
+
+Package: dracut-crypt-ssh
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, dracut, dracut-network, dropbear-bin, openssh-client
+Description: dracut module to start dropbear during boot
+ dracut initramfs module to start dropbear sshd during boot to unlock the root filesystem with the (cryptsetup) LUKS passphrase remotely
