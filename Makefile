@@ -4,9 +4,9 @@ export DESTDIR=
 export MODULEDIR=${DESTDIR}$(DRACUT_MODULEDIR)
 
 ifeq ($(NEED_CRYPTSETTLE),1)
-	SUBDIRS=modules/60crypt-ssh modules/cryptsettle-patch
+	SUBDIRS=modules/60crypt-ssh modules/61fixshell modules/cryptsettle-patch
 else
-	SUBDIRS=modules/60crypt-ssh
+	SUBDIRS=modules/60crypt-ssh modules/61fixshell
 endif
 
 .PHONY: install all clean dist $(SUBDIRS)
