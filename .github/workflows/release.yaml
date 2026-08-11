@@ -1,0 +1,49 @@
+name: Build and publish .deb package when release is published
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install build-essential devscripts debhelper dh-make libblkid-dev dracut
+
+      - name: Build debian package
+        run: |
+          chmod +x ./configure
+          dpkg-buildpackage -us -uc -b
+
+      - name: Find file
+        run: |
+          echo "FILENAME=$(ls dracut-crypt-ssh_*.deb)" >> $GITHUB_OUTPUT
+        id: find_file
+        working-directory: ..
+
+      - name: Move file
+        run: mv "../${{ steps.find_file.outputs.FILENAME }}" .
+
+      - name: Upload package to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find_file.outputs.FILENAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.find_file.outputs.FILENAME }}
