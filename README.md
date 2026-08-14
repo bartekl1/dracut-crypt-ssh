@@ -1,335 +1,188 @@
-dracut-crypt-ssh
-----------------
+# dracut-crypt-ssh
 
-# 1. Introduction
+A Debian-friendly fork of [dracut-crypt-ssh/dracut-crypt-ssh](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh) that provides easier installation and configuration on Debian-based systems.
 
-The crypt-ssh dracut module allows remote unlocking of systems with
-full disk encryption via ssh.
+[Original README](README.old.md) | [Upstream repository](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh)
 
-There are a number of reasons why you would want to do this:
-  1. It provides a way of entering encryption keys for a number of servers without console switching
-  2. It allows booting of remote or co-located encrypted servers without console access
+## About original project
 
-Users are strictly authenticated using their SSH public keys. These can be either:
-`/root/.ssh/authorized_keys` or a custom file (`dropbear_acl` option). Depending
-on your environment, it may make sense to make the preboot authorized_keys file
-different from the normal one.
+dracut-crypt-ssh is a dracut module that allows you to remotely unlock LUKS-encrypted system drive over SSH during the initramfs stage of the boot process. It is useful for headless systems like servers which do not have a keyboard or monitor attached.
 
-Plain text password authentication and port forwarding are disabled.
+## Why this fork?
 
+Debian uses `initramfs-tools` as its default initramfs generator and provides `dropbear-initramfs` package for remote access to the initramfs.
 
-# 2. Installation
+However, this setup does not provide the same TPM 2.0 integration available with `dracut` for automatically unlocking LUKS volumes. Using dracut allows LUKS volumes to be integrated with TPM 2.0-based unlocking mechanisms.
 
-When possible, installation via distribution packages is a convenient way to
-install `dracut-crypt-ssh`. Please contact us via
-[GitHub issues](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh/issues)
-if you are able to provide packages for other distributions and would like
-brief instructions for your distribution included here.
+Even with TPM 2.0 automatic unlocking, you may still need to enter a LUKS passphrase when using strict PCR policies. For example, regenerating the initramfs after a kernel update can change the measured boot state and cause the TPM to refuse automatic unlocking.
 
-## 2.1. Distribution Packages
+## Changes in this fork
 
-- Void Linux provides an official package:
-  ```sh
-  xbps-install dracut-crypt-ssh
-  ```
+Code of the dracut-crypt-ssh module itself has not been changed, but several other modifications have been made to simplify the installation and usage of the module on Debian-based systems. This includes:
 
-- Gentoo provides a package in Portage:
-  ```sh
-  emerge sys-kernel/dracut-crypt-ssh
-  ```
+- The project is packaged as a Debian package that can be installed using `apt` instead of manually building the module from source.
+- Packages are automatically built by GitHub Actions for releases.
+- Release packages include GitHub artifact attestations that can be used to verify their provenance and integrity.
+- Added a custom `fixshell` dracut module that works around an issue with the shell available in the initramfs. It modifies `/etc/passwd` and `/etc/shells` inside the initramfs so that the `root` user's shell is `/bin/sh` and `/bin/sh` is listed as a valid shell. These changes affect only the initramfs; the corresponding files on the installed system are not modified.
+- SSH host keys for the initramfs are generated during package installation. This avoids having to generate them manually and prevents the default module behavior of generating new host keys every time the initramfs is rebuilt.
+- The default module configuration is modified to use the SSH host keys generated during package installation.
+- The default `authorized_keys` location is changed so that the keys used for initramfs SSH access are stored separately from `/root/.ssh/authorized_keys` on the installed system.
 
-- Arch Linux provides packages in the AUR for both
-  [tagged releases](https://aur.archlinux.org/packages/dracut-crypt-ssh/) and the
-  [git HEAD](https://aur.archlinux.org/packages/dracut-crypt-ssh-git/).
+## Installation
 
-- An unofficial [COPR repository](https://copr.fedorainfracloud.org/coprs/uriesk/dracut-crypt-ssh/)
-provides packages for Fedora 36+:
-  ```sh
-  dnf copr enable uriesk/dracut-crypt-ssh
-  dnf install dracut-crypt-ssh
-  ```
+### 1. Install the package
 
-## 2.2. Installation From Sources
+Download the `.deb` package from the latest release and install it with `apt`:
 
-Manual installation of `dracut-crypt-ssh` requires the following packages at
-run time:
-- [Dropbear SSH](https://matt.ucc.asn.au/dropbear/dropbear.html)
-- [OpenSSH](https://www.openssh.com/)
-- [Dracut](https://mirrors.edge.kernel.org/pub/linux/utils/boot/dracut/dracut.html)
-  and its `dracut-network` module
-
-When building, the following additional packages are required:
-- [util-linux](https://mirrors.edge.kernel.org/pub/linux/utils/util-linux/) and
-  its `libblkid` component, including headers (e.g., `libblkid-devel`)
-- [which](http://savannah.gnu.org/projects/which)
-- A C compiler, probably [GCC](http://gcc.gnu.org/)
-
-Retrieve a copy the source, for example via `git` with
-```sh
-git clone https://github.com/dracut-crypt-ssh/dracut-crypt-ssh.git
+```bash
+wget https://github.com/bartekl1/dracut-crypt-ssh/releases/download/v1.0.8/dracut-crypt-ssh_1.0.8-1_amd64.deb
+sudo apt install ./dracut-crypt-ssh_1.0.8-1_amd64.deb
 ```
-Within the source directory, configure and install the package
-```sh
-./configure
-make
-make install
+
+> [!NOTE]
+> The URL above is an example for version `1.0.8`. Check the [latest release](https://github.com/bartekl1/dracut-crypt-ssh/releases/latest) and update the URL if necessary.
+
+> [!TIP]
+> It is recommended to use `apt` instead of `dpkg` as it will automatically resolve and install any missing dependencies.
+
+### 2. Configure networking in the initramfs
+
+Configure GRUB to start networking in the initramfs.
+
+Edit `/etc/default/grub` and add `rd.neednet=1` and an appropriate `ip=` configuration to `GRUB_CMDLINE_LINUX`.
+
+For DHCP:
+
+```text
+GRUB_CMDLINE_LINUX="rd.auto rd.luks=1 rd.neednet=1 ip=dhcp"
 ```
-The `make install` command probably needs to be run as `root`.
 
-# 3. Usage
+For a static IP, replace `ip=dhcp` with your network configuration. For example:
 
-## 3.1. Building the initramfs
+```text
+ip=192.168.0.100::192.168.0.1:255.255.255.0::eth0:off
+```
 
-After the first installation and every time you update the `dracut-crypt-ssh` configuration,
-it is required to rebuild the initramfs:
+After modifying the configuration, update GRUB:
 
-    # dracut --force
+```bash
+sudo update-grub
+```
 
+> [!IMPORTANT]
+> Make sure that the network interface name (`eth0` in the example above) matches the interface available during the initramfs stage.
 
-## 3.2 Enable network access during boot
+### 3. Configure `dracut-crypt-ssh`
 
-You will need to adjust your boot loader to configure network access for your
-initramfs. The kernel and initramfs should be booted with the kernel
-command-line arguments `rd.neednet=1` and an appropriate `ip=` argument for
-your network. For DHCP configuration,
+The package configuration file is located in:
 
-    rd.neednet=1 ip=dhcp
+```text
+/etc/dracut.conf.d/crypt-ssh.conf
+```
 
-should be sufficient. For static configuration, use something like
+Modify this file if you need to change the default configuration, such as the SSH port or SSH host key paths.
 
-    rd.neednet=1 ip=192.168.0.100::192.168.0.1:255.255.255.0::eth0:off
+In most cases, you will not need to modify this file. The default configuration should work out of the box for most users.
 
-Refer to the [network documentation of dracut](https://www.kernel.org/pub/linux/utils/boot/dracut/dracut.html#_network)
-for more options (`man dracut.cmdline`).
+### 4. Add your SSH public key
 
-For GRUB users, the kernel command-line often can be set in `/etc/default/grub`
-by appending the necessary arguments to the end of the `GRUB_CMDLINE_LINUX`
-variable:
+Add the public key that should be allowed to connect to the initramfs to:
 
-    /etc/default/grub:
-        ...
-        GRUB_CMDLINE_LINUX="... rd.neednet=1 ip=dhcp"
-        ...
+```text
+/etc/dracut-crypt-ssh/authorized_keys
+```
 
-Afterwards, regenerate your GRUB config:
+For example, to import the keys from your current user's `authorized_keys`:
 
-    # grub2-mkconfig --output /etc/grub2.cfg
+```bash
+cat ~/.ssh/authorized_keys | sudo tee -a /etc/dracut-crypt-ssh/authorized_keys
+```
 
+### 5. Regenerate the initramfs
 
-## 3.3. Unlocking the volumes interactively
+Regenerate all installed initramfs images:
 
-When rebooting the system, dropbear sshd is started by the initramfs. You should
-be able to login and unlock the volumes:
+```bash
+sudo dracut -f --regenerate-all
+```
 
-    % ssh -p 222 root@192.168.0.100
+If you only need to regenerate the initramfs for the currently running kernel, you can use:
 
-You can use the `console_peek` command to see what's currently showing on the
-console and the `console_auth` command to input a passphrase that will be sent
-to the console.
+```bash
+sudo dracut -f
+```
 
-If unlocking the device succeeded, the initramfs will clean up itself
-and dropbear terminates itself and your connection.
+## Usage
 
+After booting into the initramfs, connect to the system over SSH using the configured port. The default port is `222` and the SSH user is `root`.
 
-## 3.4. Unlocking using the unlock command
+For example:
 
-The `unlock` binary reads a passphrase from stdin, parses `/etc/crypttab`
-and attempts to call `cryptsetup luksOpen` on all luks-encrypted drives that
-don't have a keyfile, passing the passphrase that unlock got in stdin to luksOpen.
+```bash
+ssh -p 222 root@<IP_ADDRESS>
+```
 
-What this means in practice is you can do:
+Once connected, you can use the following commands:
 
-    % ssh root@remote.server -p 222 unlock < passwordFile
+- `console_peek` — displays what is currently shown on the system console.
+- `console_auth` — sends a passphrase entered through SSH to the console.
 
-or:
+Use `console_peek` to check whether the system is waiting for a LUKS passphrase, then use `console_auth` to provide it.
 
-    % gpg -d password.gpg | ssh root@remote.server -p 222 unlock
+## Configuration
 
-If you want to only unlock specific drives / LUKS volumes, you can provide
-wildcards on the command line, e.g.
+The main configuration file is:
 
-    % ssh root@remote.server -p 222 unlock luks-3467c luks-34c13
+```text
+/etc/dracut.conf.d/crypt-ssh.conf
+```
 
+The SSH public keys used for authentication are stored in:
 
-`unlock` will search the crypttab for mapper names (first column in
-`/etc/crypttab`) that start with the listed names.  Volumes that match via this
-method may have a keyfile listed in `/etc/crypttab`, it will be assumed that you
-want to unlock the volume/s with an alternative key.
-Note that the names provided are really wildcards, and by convention/default
-all mappers start with luks-, so you can force `unlock` to try all drives simply
-by doing something like 'unlock luks-'.
+```text
+/etc/dracut-crypt-ssh/authorized_keys
+```
 
-In all cases, `unlock` will only consider the process a success only if all
-eligible volumes are unlocked successfully.  This means:
+SSH host keys used by the initramfs are generated during package installation.
 
-  1. All the associated devices must be available at boot / unlock time
-  2. The passphrase must be accepted for all eligible volumes
-  3. cryptsetup luksOpen should not exit for any other reason.
+## Building from source
 
-In short, if you have more than one volume in `/etc/crypttab`, you will need to
-be careful about how use this tool.
+Install build dependencies:
 
-If the process is successful, `unlock` will launch the script
-`/sbin/unlock-reap-success`. This will attempt to kill systemd-cryptsetup, and
-failing that, attempt to kill cryptroot-ask. On RHEL6 & 7, this aborts the
-builtin decrypt password request processes and allows the boot process to
-proceed. Note that the plymouth splash screen on RHEL6 (if you happen to be
-watching the console...) will still appear to ask for your password, but this
-is an artifact. Disable plymouth (rhgb command line) if this annoys you.
+```bash
+sudo apt update
+sudo apt install build-essential devscripts debhelper dh-make libblkid-dev dracut
+```
 
-You might want to limit access only to the unlock binary, just add
-command="unlock" to your authorized_keys before the key, e.g.
+> [!CAUTION]
+> Installation `dracut` on a standard Debian installation may cause `initramfs-tools` to be removed because both packages provide the initramfs generation infrastructure. Make sure you understand this change before installing the build dependencies on your main system.
+>
+> If you want to keep using `initramfs-tools`, or if you are unsure about the consequences, build the package in a virtual machine or another isolated Debian environment.
 
-    command="unlock" ssh-rsa .....
+Make the `configure` script executable:
 
-# 4. Configuration
+```bash
+chmod +x configure
+```
 
-The configuration is stored in the crypt-ssh.conf, usually located in `/etc/dracut.conf.d/`.
+Build the package:
 
-The following options are available (see the config file for detailed description):
- - `dropbear_port` (default: `222`) - port ssh daemon should listen on
- - `dropbear_keytypes` (default: `rsa ecdsa ed25519`) - A space-separated list of the SSH key types which will be installed in the initramfs
- - `dropbear_rsa_key`, `dropbear_ecdsa_key`, `dropbear_ed25519_key` (default: `GENERATE`) - Source of the keys, possible options:
-   - `SYSTEM` - copy the private keys from the encrypted system (not recommended)
-   - `GENERATE` - generate a new keys (during the creation of initramfs)
-   - path - key file in OpenSSH format as generared by ssh-keygen (a public file with '.pub' ending must be present too)
+```bash
+dpkg-buildpackage -us -uc -b
+```
 
-   If any key type is not included in `dropbear_keytypes`, the corresponding `dropbear_<type>_key` variable is ignored
- - `dropbear_acl` (default: `/root/.ssh/authorized_keys`) - Keys which allowed to login into initramfs
-
-After any configuration change, you have to rebuild the initramfs as the
-configuration takes effect during the building the initramfs.
-
-## 4.1 Generating keys for dracut-crypt-ssh (recommended)
+The resulting `.deb` package will be created in the parent directory.
 
-By default, dracut-crypt-ssh generates an SSH key whenever the image is built
-(`GENERATE`), which either creates administrative overhead or weakens the
-security of the SSH connection as keys will be regenerated transparently during
-system updates. It is highly recommended to generate SSH keys specifically
-for dracut-crypt-ssh and validate these keys during the initial connection.
-The following steps should give you an idea how to set this up. You can change
-the directory as you wish. Keep these SSH keys safe, but also keep in mind that
-they will be copied to the initramfs on the unencrypted boot partition (where
-they may be extracted or changed).
-
-    # umask 0077
-    # mkdir /root/dracut-crypt-ssh-keys
-    # ssh-keygen -t rsa -m PEM -f /root/dracut-crypt-ssh-keys/ssh_dracut_rsa_key
-    # ssh-keygen -t ecdsa -m PEM -f /root/dracut-crypt-ssh-keys/ssh_dracut_ecdsa_key
-    # ssh-keygen -t ed25519 -m PEM -f /root/dracut-crypt-ssh-keys/ssh_dracut_ed25519_key
+## Security considerations
 
-Point to these keys in the configuration `/etc/dracut.conf.d/crypt-ssh.conf`:
+LUKS provides strong protection against offline access to encrypted data, but remote unlocking does not protect against a compromised boot environment.
 
-    dropbear_rsa_key="/root/dracut-crypt-ssh-keys/ssh_dracut_rsa_key"
-    dropbear_ecdsa_key="/root/dracut-crypt-ssh-keys/ssh_dracut_ecdsa_key"
-    dropbear_ed25519_key="/root/dracut-crypt-ssh-keys/ssh_dracut_ed25519_key"
+If an attacker has physical access to the machine, they may be able to modify the bootloader, kernel, initramfs, or other components involved in unlocking the encrypted volume. For example, an attacker could replace executables that handle key material or extract the private SSH host keys from the initramfs.
 
-Remember regenerate the initramfs after this step:
+This type of attack is not unique to `dracut-crypt-ssh`, but providing remote access to the initramfs may make some attacks easier to perform or conceal.
 
-    # dracut --force
+## License
 
-# 5. Troubleshooting and Debugging
+This project is licensed under the [GNU General Public License v2.0](LICENSE), the same license as the upstream project.
 
-If things don't work as expected, there are a few ways to find out what
-is going, get help or report an issue.
-
-## 5.1 Ensure disk decryption works
-
-With or without crypt-ssh installed, dracut should always prompt for
-a LUKS password and boot properly when the password is entered. If booting
-with an interactive password does not work, you need to fix that first:
-Ensure that the LUKS UUID configured in GRUB and the crypttab in the initramfs
-are up to date and all modules needed to mount the root filesystem are present
-in the initramfs. 
-
-Refer to the [crypto LUKS documentation of dracut](https://mirrors.edge.kernel.org/pub/linux/utils/boot/dracut/dracut.html#_crypto_luks)
-(`man dracut.cmdline`) and your distribution documentation or help channels.
-
-## 5.2 Ensure networking works (if you have console access)
-
-If you cannot reach the crypt-ssh host via SSH, but you still have
-interactive console access, you can (re)boot it with a dracut breakpoint.
-
-When GRUB presents the boot options, hit the `e` key to edit boot options
-and add `rd.break=pre-mount` to the boot options. Remove `rhgb` and `quiet`
-from the kernel command line, if they are present. Hit `Ctrl-x` to boot
-with the manual configuration and type your LUKS passphrase via the console.
-
-Before mounting the root filesystem, dracut will drop you into a shell.
-Is your network adapter present in `ip a`? If not, does your network adapter
-need a module (check `lsmod` and `dmesg | grep net`)? Do you have an IP address
-configured? Can you use `dhclient` to acquire an IP address? Is `dropbear`
-running (`ps aux`)?
-
-If the network adapter (module) is missing, rebuild the initramfs (`dracut -f`).
-If your network configuration is missing, it's probably a configuration
-issue. Refer to the Usage section for networking parameters. If the network
-comes up, but dracut does not load, that's probably a bug in dracut-crypt-ssh.
-[Please report it](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh/issues).
-
-## 5.3 Debugging a remote host
-
-If (or rather "when") something goes wrong and you can't access just-booted
-machine over network and can't get to console (hence sshd in initramfs), don't
-panic - it's fixable if the machine can be rebooted into some rescue system
-remotely.
-
-Usually it's some dhcp+tftp netboot thing from a co-located machine (good idea to
-setup/test in advance) plus whoever is there occasionally pushing the power
-button, or maybe some fancy hw/interface for that (e.g. hetzner "rescue" interface).
-
-To see what was going on during initramfs, open
-"modules.d/99base/rdsosreport.sh" in dracut, append this (to the end):
-
-    set -x
-    netstat -lnp
-    netstat -np
-    netstat -s
-    netstat -i
-    ip addr
-    ip ro
-    set +x
-
-    exec >/dev/null 2>&1
-    mkdir /tmp/myboot
-    mount /dev/sda2 /tmp/myboot
-    cp /run/initramfs/rdsosreport.txt /tmp/myboot/
-    umount /tmp/myboot
-    rmdir /tmp/myboot
-
-Be sure to replace `/dev/sda2` with whatever device is used for /boot, rebuild
-dracut and add `rd.debug` to cmdline (e.g. in grub.cfg's "linux" line).
-
-Upon next reboot, *wait* for at least a minute, since dracut should give up on
-trying to boot the system first, then it will store full log of all the stuff
-modules run ("set -x") and their output in "/boot/rdsosreport.txt".
-
-Naturally, to access that, +1 reboot into some "rescue" system might be needed.
-
-In case of network-related issues - e.g. if "rdsosreport.txt" file gets created
-with "rd.debug", but host can't be pinged/connected-to for whatever reason -
-either enable "debug" dracut module or add `dracut_install netstat ip` line to
-`install()` section of "modules.d/60dropbear-sshd/module-setup.sh" and check
-"rdsosreport.txt" or console output for whatever netstat + ip commands above
-(for "rdsosreport.sh") show - there can be no default route, whatever interface
-naming mixup, no traffic (e.g. unrelated connection issue), etc.
-
-## 5.4 Report a bug
-
-If you suspect a bug in the software, please [report it via our issue 
-tracker](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh/issues).
-
-
-# 6. Security warning
-
-The integrity, confidentiality and authenticity of your encrypted data relies
-on the physical integrity of your device. If someone else has access to the
-device that you are unlocking, it is entirely possible to replace the executable
-files handling your key material, or steal your initramfs's SSH private keys.
-Arguably, this kind of attack is possible without the "crypt-ssh" module, but
-using automated or remote access could make such an attack easier to conceal.
-If this is a concern for you, consider keeping your devices offline and on your
-person. If this is not a concern for you, *i.e.*, you place a certain amount of
-trust in your hosting provider or physical integrity, this tool might still
-protect against accidental data leaks (i.e. VM deprovisioning, replaced hard
-disks).
+The package is provided "as is" without any warranty. Use it at your own risk. I am not responsible for any damage, data loss or security breach.
