@@ -1,6 +1,6 @@
 # dracut-crypt-ssh
 
-A Debian-friendly fork of [dracut-crypt-ssh/dracut-crypt-ssh](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh) that provides easier installation and configuration on Debian-based systems.
+Fork of [dracut-crypt-ssh/dracut-crypt-ssh](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh) with improved support for Debian-based systems.
 
 [Original README](README.old.md) | [Upstream repository](https://github.com/dracut-crypt-ssh/dracut-crypt-ssh)
 
@@ -22,7 +22,8 @@ Code of the dracut-crypt-ssh module itself has not been changed, but several oth
 
 - The project is packaged as a Debian package that can be installed using `apt` instead of manually building the module from source.
 - Packages are automatically built by GitHub Actions for releases.
-- Release packages include GitHub artifact attestations that can be used to verify their provenance and integrity.
+- Release packages include GitHub artifact attestations that can be used to verify their provenance and integrity. \
+[Learn more about artifact attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations) | [Learn more about attestation verification](https://cli.github.com/manual/gh_attestation_verify)
 - Added a custom `fixshell` dracut module that works around an issue with the shell available in the initramfs. It modifies `/etc/passwd` and `/etc/shells` inside the initramfs so that the `root` user's shell is `/bin/sh` and `/bin/sh` is listed as a valid shell. These changes affect only the initramfs; the corresponding files on the installed system are not modified.
 - SSH host keys for the initramfs are generated during package installation. This avoids having to generate them manually and prevents the default module behavior of generating new host keys every time the initramfs is rebuilt.
 - The default module configuration is modified to use the SSH host keys generated during package installation.
@@ -47,11 +48,11 @@ sudo apt install ./dracut-crypt-ssh_1.0.8-1_amd64.deb
 
 ### 2. Configure networking in the initramfs
 
-Configure GRUB to start networking in the initramfs.
+Configure GRUB to start network in the initramfs.
 
 Edit `/etc/default/grub` and add `rd.neednet=1` and an appropriate `ip=` configuration to `GRUB_CMDLINE_LINUX`.
 
-For DHCP:
+Example for DHCP:
 
 ```text
 GRUB_CMDLINE_LINUX="rd.auto rd.luks=1 rd.neednet=1 ip=dhcp"
@@ -69,9 +70,6 @@ After modifying the configuration, update GRUB:
 sudo update-grub
 ```
 
-> [!IMPORTANT]
-> Make sure that the network interface name (`eth0` in the example above) matches the interface available during the initramfs stage.
-
 ### 3. Configure `dracut-crypt-ssh`
 
 The package configuration file is located in:
@@ -84,9 +82,9 @@ Modify this file if you need to change the default configuration, such as the SS
 
 In most cases, you will not need to modify this file. The default configuration should work out of the box for most users.
 
-### 4. Add your SSH public key
+### 4. Add your SSH public keys
 
-Add the public key that should be allowed to connect to the initramfs to:
+Add the public keys that should be allowed to connect to the initramfs to:
 
 ```text
 /etc/dracut-crypt-ssh/authorized_keys
